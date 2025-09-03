@@ -578,6 +578,45 @@
                 }
             });
 
+            // NEW: Image resizing helper function
+            async function resizeImage(file, maxWidth = 800, maxHeight = 800) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > height) {
+                                if (width > maxWidth) {
+                                    height *= maxWidth / width;
+                                    width = maxWidth;
+                                }
+                            } else {
+                                if (height > maxHeight) {
+                                    width *= maxHeight / height;
+                                    height = maxHeight;
+                                }
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            resolve({
+                                dataUrl: canvas.toDataURL(file.type),
+                                mimeType: file.type
+                            });
+                        };
+                        img.onerror = reject;
+                        img.src = event.target.result;
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
             function addAgendaItem(content, type = 'text') {
                  if (!content) return;
                 const itemDiv = document.createElement('div');
@@ -618,14 +657,16 @@
             });
 
             elements.agenda.addImageBtn.addEventListener('click', () => elements.agenda.imageInput.click());
-            elements.agenda.imageInput.addEventListener('change', (event) => {
+            elements.agenda.imageInput.addEventListener('change', async (event) => {
                 const file = event.target.files[0];
                 if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        addAgendaItem(e.target.result, 'image');
-                    };
-                    reader.readAsDataURL(file);
+                    try {
+                        const { dataUrl } = await resizeImage(file);
+                        addAgendaItem(dataUrl, 'image');
+                    } catch (error) {
+                        showNotification('Error resizing image. Please try another file.', true);
+                        console.error('Image resize error:', error);
+                    }
                 }
             });
 
@@ -642,7 +683,10 @@
                     });
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
-                    return data.candidates[0].content.parts[0].text.trim();
+                    if (data.candidates && data.candidates.length > 0) {
+                        return data.candidates[0].content.parts[0].text.trim();
+                    }
+                    throw new Error("No candidates returned from API.");
                 } catch (error) {
                     console.error("Gemini API Error:", error);
                     showNotification("Error generating content. See console.", true);
@@ -672,9 +716,13 @@
                     });
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
-                    const text = data.candidates[0].content.parts[0].text;
-                    resultEl.textContent = text.trim();
-                    resultEl.style.display = 'block';
+                    if (data.candidates && data.candidates.length > 0) {
+                        const text = data.candidates[0].content.parts[0].text;
+                        resultEl.textContent = text.trim();
+                        resultEl.style.display = 'block';
+                    } else {
+                         throw new Error("No candidates returned from API for image prompt.");
+                    }
                 } catch (error) {
                     console.error("Gemini Vision API Error:", error);
                     showNotification("Error generating prompt. See console.", true);
@@ -711,23 +759,25 @@
             });
             
             elements.dailyDrop.placeholder.addEventListener('click', () => elements.dailyDrop.input.click());
-            elements.dailyDrop.input.addEventListener('change', (event) => {
+            elements.dailyDrop.input.addEventListener('change', async (event) => {
                 const file = event.target.files[0];
                 if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
+                    try {
+                         const { dataUrl, mimeType } = await resizeImage(file);
                         const img = document.createElement('img');
-                        img.src = e.target.result;
+                        img.src = dataUrl;
                         img.alt = "Daily Drop Image";
-                        img.dataset.mimeType = file.type; // Store mime type
+                        img.dataset.mimeType = mimeType;
                         elements.dailyDrop.placeholder.innerHTML = '';
                         elements.dailyDrop.placeholder.appendChild(img);
 
                         elements.dailyDrop.placeholder.classList.add('has-image');
                         elements.dailyDrop.removeBtn.style.display = 'block';
                         elements.dailyDrop.generatePromptBtn.style.display = 'block';
-                    };
-                    reader.readAsDataURL(file);
+                    } catch (error) {
+                        showNotification('Error processing image. Please try another file.', true);
+                        console.error('Daily Drop image error:', error);
+                    }
                 }
             });
 
@@ -772,16 +822,24 @@
             });
 
             function saveState() {
-                const dataToSave = {
-                    objective: elements.objective.textarea.value,
-                    doNow: elements.doNow.textarea.value,
-                    agenda: Array.from(elements.agenda.list.querySelectorAll('.agenda-item-content')).map(item => {
-                        const img = item.querySelector('img');
-                        return { type: img ? 'image' : 'text', content: img ? img.src : item.textContent };
-                    }),
-                    dailyDrop: elements.dailyDrop.placeholder.classList.contains('has-image') ? elements.dailyDrop.placeholder.querySelector('img').src : null
-                };
-                localStorage.setItem(`teacherHubState_${state.currentClass}`, JSON.stringify(dataToSave));
+                try {
+                    const dataToSave = {
+                        objective: elements.objective.textarea.value,
+                        doNow: elements.doNow.textarea.value,
+                        agenda: Array.from(elements.agenda.list.querySelectorAll('.agenda-item-content')).map(item => {
+                            const img = item.querySelector('img');
+                            return { type: img ? 'image' : 'text', content: img ? img.src : item.textContent };
+                        }),
+                        dailyDrop: elements.dailyDrop.placeholder.classList.contains('has-image') ? elements.dailyDrop.placeholder.querySelector('img').src : null
+                    };
+                    localStorage.setItem(`teacherHubState_${state.currentClass}`, JSON.stringify(dataToSave));
+                } catch(e) {
+                     if (e.name === 'QuotaExceededError') {
+                        showNotification('Could not save session. Storage is full. Clear archive or remove large images.', true);
+                    } else {
+                        showNotification('Error saving session.', true);
+                    }
+                }
             }
 
             function loadState() {
@@ -789,7 +847,7 @@
                 elements.objective.textarea.value = '';
                 elements.doNow.textarea.value = '';
                 elements.agenda.list.innerHTML = '';
-                elements.dailyDrop.removeBtn.click(); // Reset daily drop
+                elements.dailyDrop.removeBtn.click(); 
 
                 if (savedState) {
                     const data = JSON.parse(savedState);
@@ -828,7 +886,11 @@
             }
 
             function saveArchives() {
-                localStorage.setItem('teacherHubArchives', JSON.stringify(state.archives));
+                try {
+                    localStorage.setItem('teacherHubArchives', JSON.stringify(state.archives));
+                } catch(e) {
+                    showNotification('Could not save to archive. Storage may be full.', true);
+                }
             }
 
             function renderArchive() {
@@ -853,11 +915,11 @@
                         entryDiv.innerHTML = `
                             <h4>${entry.className}</h4>
                             <h5>Learning Objective</h5>
-                            <p>${entry.objective}</p>
+                            <p>${entry.objective || 'N/A'}</p>
                             <h5>Check and Connect</h5>
-                            <p>${entry.doNow}</p>
+                            <p>${entry.doNow || 'N/A'}</p>
                             <h5>Agenda</h5>
-                            <ul>${entry.agenda.map(item => `<li>${item.type === 'image' ? '<img src="'+item.content+'" alt="Agenda image">' : item.content}</li>`).join('')}</ul>
+                            <ul>${entry.agenda.map(item => `<li>${item.type === 'image' ? '<img src="'+item.content+'" alt="Agenda image">' : item.textContent}</li>`).join('')}</ul>
                             ${dailyDropHTML}
                         `;
                         grid.appendChild(entryDiv);
@@ -963,7 +1025,6 @@
                         elements.calculator.display.textContent = '0';
                     } else if (value === '=') {
                         try {
-                            // Basic eval, replace custom operators if needed
                             elements.calculator.display.textContent = eval(current.replace(/--/g, '+').replace(/(\d)%/g, '($1/100)'));
                         } catch {
                             elements.calculator.display.textContent = 'Error';
