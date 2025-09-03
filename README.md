@@ -130,7 +130,7 @@
         select.action-input { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23adb5bd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 1rem center; background-size: 1em; padding-right: 2.5rem; }
         .action-btn { background: linear-gradient(90deg, var(--green-accent), #2a9d8f); color: white; border: none; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s ease; }
         .action-btn:hover { transform: translateY(-2px); box-shadow: 0 0 10px rgba(52, 199, 89, 0.5); }
-        .gemini-result-box { background-color: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 8px; padding: 15px; margin-top: 10px; min-height: 50px; }
+        .gemini-result-box { background-color: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 8px; padding: 15px; margin-top: 10px; min-height: 50px; white-space: pre-wrap; }
         .loader { text-align: center; padding: 10px; display: none; }
         #generate-prompt-btn { display: none; margin-top: 10px; width: 100%; }
 
@@ -176,8 +176,9 @@
         .archive-entry { padding: 15px; font-size: 0.9em; }
         .archive-entry h4 { margin-top: 0; color: var(--primary-accent); font-size: 1.1em; }
         .archive-entry h5 { color: var(--secondary-accent); border-bottom: 1px solid var(--secondary-accent); padding-bottom: 3px; margin-top: 10px; margin-bottom: 5px; font-size: 1em; }
-        .archive-entry p, .archive-entry ul { margin-top: 0; font-size: 0.95em; }
+        .archive-entry p, .archive-entry ul { margin-top: 0; font-size: 0.95em; word-wrap: break-word; }
         .archive-entry ul { list-style-type: disc; padding-left: 20px; }
+        .archive-entry img { max-width: 100%; border-radius: 8px; margin-top: 10px; }
         #github-publish-section { margin-top: 40px; padding-top: 20px; border-top: 2px solid var(--card-border); }
         #github-publish-section textarea { width: 100%; min-height: 250px; font-family: monospace; font-size: 0.9em; }
         
@@ -400,554 +401,592 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- GLOBAL STATE & ELEMENTS ---
-            const classSelector = document.getElementById('class-selector');
-            let currentClass = classSelector.value;
-            const notificationBox = document.getElementById('notification-box');
-            let archives = [];
+            const elements = {
+                classSelector: document.getElementById('class-selector'),
+                notificationBox: document.getElementById('notification-box'),
+                topHeaderBar: document.getElementById('top-header-bar'),
+                navLinks: document.querySelectorAll('.nav-link'),
+                tabContents: document.querySelectorAll('.tab-content'),
+                timer: {
+                    widget: document.getElementById('timer-widget'),
+                    display: document.getElementById('timerDisplay'),
+                    startBtn: document.getElementById('start-btn'),
+                    pauseBtn: document.getElementById('pause-btn'),
+                    resetBtn: document.getElementById('reset-btn'),
+                    presets: document.querySelectorAll('.timer-btn'),
+                    progressBar: document.getElementById('progressBar')
+                },
+                agenda: {
+                    list: document.getElementById('agenda-list'),
+                    presetSelect: document.getElementById('agenda-preset-select'),
+                    customGroup: document.getElementById('custom-agenda-group'),
+                    customInput: document.getElementById('custom-agenda-input'),
+                    addBtn: document.getElementById('add-agenda-item-btn'),
+                    addImageBtn: document.getElementById('add-agenda-image-btn'),
+                    imageInput: document.getElementById('agenda-image-input')
+                },
+                objective: {
+                    textarea: document.getElementById('learningObjective'),
+                    topicInput: document.getElementById('objective-topic'),
+                    generateBtn: document.getElementById('generate-objective-btn'),
+                    clearBtn: document.getElementById('clear-objective-btn')
+                },
+                doNow: {
+                    textarea: document.getElementById('doNow'),
+                    generateBtn: document.getElementById('generate-donow-btn'),
+                    clearBtn: document.getElementById('clear-donow-btn')
+                },
+                dailyDrop: {
+                    placeholder: document.getElementById('daily-drop-placeholder'),
+                    input: document.getElementById('daily-drop-input'),
+                    removeBtn: document.getElementById('remove-daily-drop-btn'),
+                    generatePromptBtn: document.getElementById('generate-prompt-btn'),
+                    promptLoader: document.getElementById('prompt-loader'),
+                    promptResult: document.getElementById('prompt-result')
+                },
+                actions: {
+                    copyBtn: document.getElementById('copy-for-sharing-btn'),
+                    submitBtn: document.getElementById('submit-to-archive-btn')
+                },
+                archive: {
+                    display: document.getElementById('archive-display'),
+                    generateHtmlBtn: document.getElementById('generate-archive-html-btn'),
+                    clearBtn: document.getElementById('clear-archive-btn'),
+                    githubTextarea: document.getElementById('archive-for-github')
+                },
+                teacherTools: {
+                    docTypeSelect: document.getElementById('doc-type-select'),
+                    textarea: document.getElementById('doc-generator-textarea'),
+                    generateBtn: document.getElementById('generate-doc-btn'),
+                    downloadBtn: document.getElementById('download-doc-btn')
+                },
+                 calculator: {
+                    display: document.getElementById('calc-display'),
+                    buttons: document.querySelectorAll('.calculator .calc-btn')
+                }
+            };
 
-            // --- NOTIFICATION ---
-            function showNotification(message) {
-                notificationBox.textContent = message;
-                notificationBox.classList.add('show');
+            let state = {
+                currentClass: elements.classSelector.value,
+                archives: [],
+                timerInterval: null,
+                totalSeconds: 0,
+                remainingSeconds: 0,
+                isTimerRunning: false
+            };
+            
+            // NOTE: The API_URL should not have the key directly in it.
+            // The key is provided by the execution environment.
+            const API_KEY = ""; // This should be empty.
+            const API_URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+
+            function showNotification(message, isError = false) {
+                elements.notificationBox.textContent = message;
+                elements.notificationBox.style.background = isError ? 'var(--red-accent)' : 'var(--green-accent)';
+                elements.notificationBox.classList.add('show');
                 setTimeout(() => {
-                    notificationBox.classList.remove('show');
+                    elements.notificationBox.classList.remove('show');
                 }, 3000);
             }
 
-            // --- DATE & TIME ---
-            const topHeaderBar = document.getElementById('top-header-bar');
             function updateTime() {
                 const now = new Date();
                 const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
                 const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-                topHeaderBar.textContent = `${now.toLocaleDateString([], dateOptions)} | ${now.toLocaleTimeString([], timeOptions)}`;
+                elements.topHeaderBar.textContent = `${now.toLocaleDateString([], dateOptions)} | ${now.toLocaleTimeString([], timeOptions)}`;
             }
             setInterval(updateTime, 1000);
             updateTime();
-
-            // --- TIMER LOGIC ---
-            const timerWidget = document.getElementById('timer-widget');
-            const timerDisplay = document.getElementById('timerDisplay');
-            const startBtn = document.getElementById('start-btn');
-            const pauseBtn = document.getElementById('pause-btn');
-            const resetBtn = document.getElementById('reset-btn');
-            const progressBar = document.getElementById('progressBar');
-            const presetBtns = document.querySelectorAll('.timer-btn');
             
-            let timerInterval = null;
-            let totalSeconds = 0;
-            let secondsRemaining = 0;
+            elements.navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    elements.navLinks.forEach(item => item.classList.remove('active'));
+                    elements.tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    link.classList.add('active');
+                    const tabId = link.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
 
             function formatTime(seconds) {
-                const minutes = Math.floor(seconds / 60);
-                const remainingSeconds = seconds % 60;
-                return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
             }
 
-            function updateDisplay() {
-                timerDisplay.textContent = formatTime(secondsRemaining);
-                document.title = `${formatTime(secondsRemaining)} - Ms. P's Hub`;
+            function updateTimerDisplay() {
+                elements.timer.display.textContent = formatTime(state.remainingSeconds);
+                const progress = state.totalSeconds > 0 ? ((state.totalSeconds - state.remainingSeconds) / state.totalSeconds) * 100 : 0;
+                elements.timer.progressBar.style.width = `${progress}%`;
             }
 
-            function updateProgressBar() {
-                const percentage = totalSeconds > 0 ? ((totalSeconds - secondsRemaining) / totalSeconds) * 100 : 0;
-                progressBar.style.width = `${percentage}%`;
-            }
-            
             function startTimer() {
-                if (timerInterval) return;
-                startBtn.textContent = 'Start';
-                
-                timerInterval = setInterval(() => {
-                    if (secondsRemaining > 0) {
-                        secondsRemaining--;
-                        updateDisplay();
-                        updateProgressBar();
-                    } else {
-                        clearInterval(timerInterval);
-                        timerInterval = null;
+                if (state.isTimerRunning || state.remainingSeconds <= 0) return;
+                state.isTimerRunning = true;
+                elements.timer.widget.classList.add('timer-widget-active');
+                elements.timer.widget.classList.remove('timer-widget-static');
+                state.timerInterval = setInterval(() => {
+                    state.remainingSeconds--;
+                    updateTimerDisplay();
+                    if (state.remainingSeconds <= 0) {
+                        clearInterval(state.timerInterval);
+                        state.isTimerRunning = false;
                         showNotification("Time's up!");
-                        document.title = "Ms. P's Daily Hub";
-                        resetTimer();
+                        elements.timer.display.textContent = "Done!";
                     }
                 }, 1000);
             }
 
             function pauseTimer() {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                startBtn.textContent = 'Resume';
+                clearInterval(state.timerInterval);
+                state.isTimerRunning = false;
             }
 
             function resetTimer() {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                startBtn.textContent = 'Start';
-                totalSeconds = 0;
-                secondsRemaining = 0;
-                updateDisplay();
-                updateProgressBar();
-                presetBtns.forEach(btn => btn.classList.remove('active'));
-                timerWidget.classList.remove('timer-widget-active');
-                timerWidget.classList.add('timer-widget-static');
-                document.title = "Ms. P's Daily Hub";
+                clearInterval(state.timerInterval);
+                state.isTimerRunning = false;
+                state.remainingSeconds = state.totalSeconds;
+                updateTimerDisplay();
+                 elements.timer.widget.classList.remove('timer-widget-active');
+                elements.timer.widget.classList.add('timer-widget-static');
             }
-
-            presetBtns.forEach(button => {
-                button.addEventListener('click', () => {
-                    if (timerInterval) resetTimer();
-                    totalSeconds = parseInt(button.dataset.time, 10);
-                    secondsRemaining = totalSeconds;
-                    updateDisplay();
-                    presetBtns.forEach(btn => btn.classList.remove('active'));
-                    button.classList.add('active');
-                    timerWidget.classList.add('timer-widget-active');
-                    timerWidget.classList.remove('timer-widget-static');
-                });
-            });
-
-            startBtn.addEventListener('click', () => {
-                if (secondsRemaining > 0) {
+            
+            elements.timer.presets.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    elements.timer.presets.forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    pauseTimer();
+                    state.totalSeconds = parseInt(btn.dataset.time, 10);
+                    state.remainingSeconds = state.totalSeconds;
+                    updateTimerDisplay();
                     startTimer();
-                }
-            });
-
-            pauseBtn.addEventListener('click', () => {
-                pauseTimer();
-            });
-
-            resetBtn.addEventListener('click', () => {
-                resetTimer();
-            });
-
-            // --- TAB NAVIGATION ---
-            const navLinks = document.querySelectorAll('.nav-link');
-            const tabContents = document.querySelectorAll('.tab-content');
-
-            navLinks.forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const tab = link.dataset.tab;
-
-                    navLinks.forEach(l => l.classList.remove('active'));
-                    link.classList.add('active');
-
-                    tabContents.forEach(content => {
-                        content.id === tab ? content.classList.add('active') : content.classList.remove('active');
-                    });
                 });
             });
-            
-            // --- DATA PERSISTENCE (using localStorage) ---
-            const learningObjective = document.getElementById('learningObjective');
-            const doNow = document.getElementById('doNow');
-            const agendaList = document.getElementById('agenda-list');
-            const dailyDropPlaceholder = document.getElementById('daily-drop-placeholder');
-            const removeDailyDropBtn = document.getElementById('remove-daily-drop-btn');
 
-            function getInitialData() {
-                return { objective: '', doNow: '', agenda: [], dailyDrop: null };
-            }
+            elements.timer.startBtn.addEventListener('click', startTimer);
+            elements.timer.pauseBtn.addEventListener('click', pauseTimer);
+            elements.timer.resetBtn.addEventListener('click', resetTimer);
 
-            function saveData() {
-                try {
-                    const data = {
-                        objective: learningObjective.value,
-                        doNow: doNow.value,
-                        agenda: Array.from(agendaList.children).map(item => ({
-                            type: item.dataset.type,
-                            content: item.dataset.content
-                        })),
-                        dailyDrop: dailyDropPlaceholder.dataset.imageData || null
-                    };
-                    localStorage.setItem(`classData_${currentClass}`, JSON.stringify(data));
-                } catch (e) {
-                    console.error("Error saving data:", e);
-                    showNotification("Could not save data. Browser storage might be full.");
+            elements.agenda.presetSelect.addEventListener('change', () => {
+                if (elements.agenda.presetSelect.value === 'custom') {
+                    elements.agenda.customGroup.style.display = 'block';
+                    elements.agenda.customInput.focus();
+                } else {
+                    elements.agenda.customGroup.style.display = 'none';
                 }
-            }
-
-            function loadData() {
-                const data = JSON.parse(localStorage.getItem(`classData_${currentClass}`)) || getInitialData();
-                learningObjective.value = data.objective || '';
-                doNow.value = data.doNow || '';
-                renderAgenda(data.agenda || []);
-                data.dailyDrop ? displayImage(dailyDropPlaceholder, data.dailyDrop, removeDailyDropBtn) : clearImage(dailyDropPlaceholder, removeDailyDropBtn);
-            }
-            
-            classSelector.addEventListener('change', (e) => {
-                saveData();
-                currentClass = e.target.value;
-                loadData();
             });
 
-            [learningObjective, doNow].forEach(el => el.addEventListener('input', saveData));
+            function addAgendaItem(content, type = 'text') {
+                 if (!content) return;
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'agenda-item';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'agenda-item-content';
 
-            // --- AGENDA LOGIC ---
-            const addAgendaBtn = document.getElementById('add-agenda-item-btn');
-            const agendaPresetSelect = document.getElementById('agenda-preset-select');
-            const customAgendaGroup = document.getElementById('custom-agenda-group');
-            const customAgendaInput = document.getElementById('custom-agenda-input');
-            const addAgendaImageBtn = document.getElementById('add-agenda-image-btn');
-            const agendaImageInput = document.getElementById('agenda-image-input');
-
-            function renderAgenda(agendaItems) {
-                agendaList.innerHTML = '';
-                agendaItems.forEach(item => addAgendaItem(item.type, item.content, false));
-            }
-
-            function addAgendaItem(type, content, shouldSave = true) {
-                const item = document.createElement('div');
-                item.className = 'agenda-item';
-                item.dataset.type = type;
-                item.dataset.content = content;
-
-                const itemContent = document.createElement('div');
-                itemContent.className = 'agenda-item-content';
                 if (type === 'text') {
-                    itemContent.textContent = content;
+                    contentDiv.textContent = content;
                 } else if (type === 'image') {
                     const img = document.createElement('img');
                     img.src = content;
-                    itemContent.appendChild(img);
+                    contentDiv.appendChild(img);
                 }
-                
+
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'delete-item-btn';
                 deleteBtn.innerHTML = '&times;';
-                deleteBtn.onclick = () => { item.remove(); saveData(); };
+                deleteBtn.onclick = () => itemDiv.remove();
 
-                item.appendChild(itemContent);
-                item.appendChild(deleteBtn);
-                agendaList.appendChild(item);
-                if (shouldSave) saveData();
+                itemDiv.appendChild(contentDiv);
+                itemDiv.appendChild(deleteBtn);
+                elements.agenda.list.appendChild(itemDiv);
             }
 
-            agendaPresetSelect.addEventListener('change', () => {
-                customAgendaGroup.style.display = agendaPresetSelect.value === 'custom' ? 'block' : 'none';
-            });
-
-            addAgendaBtn.addEventListener('click', () => {
-                let value = agendaPresetSelect.value;
-                if (value === 'custom') value = customAgendaInput.value.trim();
-                if (value && value !== 'custom') {
-                    addAgendaItem('text', value);
-                    customAgendaInput.value = '';
-                    agendaPresetSelect.value = '';
-                    customAgendaGroup.style.display = 'none';
+            elements.agenda.addBtn.addEventListener('click', () => {
+                let value = elements.agenda.presetSelect.value;
+                if (value === 'custom') {
+                    value = elements.agenda.customInput.value;
+                    elements.agenda.customInput.value = '';
+                    elements.agenda.customGroup.style.display = 'none';
                 }
+                if (value) {
+                    addAgendaItem(value);
+                }
+                elements.agenda.presetSelect.value = '';
             });
 
-            addAgendaImageBtn.addEventListener('click', () => agendaImageInput.click());
-            agendaImageInput.addEventListener('change', (e) => {
-                if (e.target.files[0]) {
+            elements.agenda.addImageBtn.addEventListener('click', () => elements.agenda.imageInput.click());
+            elements.agenda.imageInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
                     const reader = new FileReader();
-                    reader.onload = (event) => addAgendaItem('image', event.target.result);
-                    reader.readAsDataURL(e.target.files[0]);
+                    reader.onload = (e) => {
+                        addAgendaItem(e.target.result, 'image');
+                    };
+                    reader.readAsDataURL(file);
                 }
             });
 
-            // --- CLEAR BUTTONS ---
-            document.getElementById('clear-objective-btn').addEventListener('click', () => { learningObjective.value = ''; saveData(); });
-            document.getElementById('clear-donow-btn').addEventListener('click', () => { doNow.value = ''; saveData(); });
+            elements.objective.clearBtn.addEventListener('click', () => elements.objective.textarea.value = '');
+            elements.doNow.clearBtn.addEventListener('click', () => elements.doNow.textarea.value = '');
 
-            // --- IMAGE UPLOAD LOGIC ---
-            function displayImage(placeholder, imageData, removeBtn) {
-                placeholder.innerHTML = `<img src="${imageData}" alt="Daily Drop">`;
-                placeholder.classList.add('has-image');
-                placeholder.dataset.imageData = imageData;
-                if(removeBtn) removeBtn.style.display = 'block';
-            }
-
-            function clearImage(placeholder, removeBtn) {
-                placeholder.innerHTML = '<p>Click to upload a photo!</p>';
-                placeholder.classList.remove('has-image');
-                delete placeholder.dataset.imageData;
-                if(removeBtn) removeBtn.style.display = 'none';
-                saveData();
-            }
-
-            dailyDropPlaceholder.addEventListener('click', () => document.getElementById('daily-drop-input').click());
-            document.getElementById('daily-drop-input').addEventListener('change', (e) => {
-                if (e.target.files[0]) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => { displayImage(dailyDropPlaceholder, event.target.result, removeDailyDropBtn); saveData(); };
-                    reader.readAsDataURL(e.target.files[0]);
+            async function callGemini(prompt) {
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                try {
+                    const response = await fetch(API_URL_BASE, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text.trim();
+                } catch (error) {
+                    console.error("Gemini API Error:", error);
+                    showNotification("Error generating content. See console.", true);
+                    return null;
                 }
-            });
-            removeDailyDropBtn.addEventListener('click', () => clearImage(dailyDropPlaceholder, removeDailyDropBtn));
+            }
             
-            // --- CALCULATOR LOGIC ---
-            const calcDisplay = document.getElementById('calc-display');
-            const calcBtns = document.querySelectorAll('.calc-btn');
-            let calcValue = '0', firstOperand = null, operator = null, waitingForSecondOperand = false;
+            async function callGeminiWithImage(prompt, base64Image, mimeType, loader, resultEl) {
+                loader.style.display = 'block';
+                resultEl.style.display = 'none';
+                resultEl.textContent = '';
+                
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: mimeType, data: base64Image } }
+                        ]
+                    }]
+                };
 
-            calcBtns.forEach(btn => btn.addEventListener('click', () => {
-                const value = btn.textContent;
-                if (!isNaN(value) || value === '.') {
-                    if (waitingForSecondOperand) { calcValue = value; waitingForSecondOperand = false; } 
-                    else { calcValue = calcValue === '0' ? value : calcValue + value; }
-                } else if (value === 'C') { calcValue = '0'; firstOperand = null; operator = null; waitingForSecondOperand = false; } 
-                else if (value === '=') {
-                    if (operator && firstOperand !== null) {
-                        const secondOperand = parseFloat(calcValue);
-                        let result = 0;
-                        if (operator === '+') result = firstOperand + secondOperand;
-                        if (operator === '-') result = firstOperand - secondOperand;
-                        if (operator === '*') result = firstOperand * secondOperand;
-                        if (operator === '/') result = firstOperand / secondOperand;
-                        calcValue = String(result);
-                        firstOperand = null; operator = null;
+                try {
+                    const response = await fetch(API_URL_BASE, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    const text = data.candidates[0].content.parts[0].text;
+                    resultEl.textContent = text.trim();
+                    resultEl.style.display = 'block';
+                } catch (error) {
+                    console.error("Gemini Vision API Error:", error);
+                    showNotification("Error generating prompt. See console.", true);
+                } finally {
+                    loader.style.display = 'none';
+                }
+            }
+
+
+            elements.objective.generateBtn.addEventListener('click', async () => {
+                const topic = elements.objective.topicInput.value.trim();
+                if (!topic) {
+                    showNotification("Please enter a topic for the objective.", true);
+                    return;
+                }
+                const prompt = `Generate a clear, concise 7th-grade student-friendly learning objective for the topic: "${topic}". Start with "Students will be able to...".`;
+                elements.objective.generateBtn.disabled = true;
+                const result = await callGemini(prompt);
+                 elements.objective.generateBtn.disabled = false;
+                if (result) elements.objective.textarea.value = result;
+            });
+
+            elements.doNow.generateBtn.addEventListener('click', async () => {
+                const topic = elements.objective.topicInput.value.trim();
+                if (!topic) {
+                    showNotification("Please enter a topic in the objective box first.", true);
+                    return;
+                }
+                const prompt = `Generate a fun, engaging warm-up question for a 7th-grade class about to learn: "${topic}". Make it high-interest and relevant.`;
+                elements.doNow.generateBtn.disabled = true;
+                const result = await callGemini(prompt);
+                elements.doNow.generateBtn.disabled = false;
+                if (result) elements.doNow.textarea.value = result;
+            });
+            
+            elements.dailyDrop.placeholder.addEventListener('click', () => elements.dailyDrop.input.click());
+            elements.dailyDrop.input.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.alt = "Daily Drop Image";
+                        img.dataset.mimeType = file.type; // Store mime type
+                        elements.dailyDrop.placeholder.innerHTML = '';
+                        elements.dailyDrop.placeholder.appendChild(img);
+
+                        elements.dailyDrop.placeholder.classList.add('has-image');
+                        elements.dailyDrop.removeBtn.style.display = 'block';
+                        elements.dailyDrop.generatePromptBtn.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            elements.dailyDrop.removeBtn.addEventListener('click', () => {
+                elements.dailyDrop.placeholder.innerHTML = '<p>Click to upload a photo!</p>';
+                elements.dailyDrop.placeholder.classList.remove('has-image');
+                elements.dailyDrop.input.value = '';
+                elements.dailyDrop.removeBtn.style.display = 'none';
+                elements.dailyDrop.generatePromptBtn.style.display = 'none';
+                elements.dailyDrop.promptResult.style.display = 'none';
+            });
+            
+            elements.dailyDrop.generatePromptBtn.addEventListener('click', () => {
+                const img = elements.dailyDrop.placeholder.querySelector('img');
+                if (img && img.src) {
+                    const base64Image = img.src.split(',')[1];
+                    const mimeType = img.dataset.mimeType || 'image/jpeg';
+                    const prompt = "Generate a short, creative writing prompt for a middle school student based on this image.";
+                    callGeminiWithImage(prompt, base64Image, mimeType, elements.dailyDrop.promptLoader, elements.dailyDrop.promptResult);
+                } else {
+                    showNotification("Please upload an image first.", true);
+                }
+            });
+            
+             elements.actions.copyBtn.addEventListener('click', () => {
+                const className = state.currentClass;
+                const date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+                const objective = elements.objective.textarea.value.trim();
+                const doNow = elements.doNow.textarea.value.trim();
+                const agendaItems = Array.from(elements.agenda.list.querySelectorAll('.agenda-item-content')).map((item, index) => {
+                    const img = item.querySelector('img');
+                    return img ? `${index + 1}. (Image attached)` : `${index + 1}. ${item.textContent}`;
+                }).join('\n');
+
+                const formattedText = `**Class:** ${className}\n**Date:** ${date}\n\n**Learning Objective:**\n${objective}\n\n**Check and Connect (Do Now):**\n${doNow}\n\n**Today's Agenda:**\n${agendaItems}`;
+
+                navigator.clipboard.writeText(formattedText).then(() => {
+                    showNotification('Copied to clipboard!');
+                }, () => {
+                    showNotification('Failed to copy.', true);
+                });
+            });
+
+            function saveState() {
+                const dataToSave = {
+                    objective: elements.objective.textarea.value,
+                    doNow: elements.doNow.textarea.value,
+                    agenda: Array.from(elements.agenda.list.querySelectorAll('.agenda-item-content')).map(item => {
+                        const img = item.querySelector('img');
+                        return { type: img ? 'image' : 'text', content: img ? img.src : item.textContent };
+                    }),
+                    dailyDrop: elements.dailyDrop.placeholder.classList.contains('has-image') ? elements.dailyDrop.placeholder.querySelector('img').src : null
+                };
+                localStorage.setItem(`teacherHubState_${state.currentClass}`, JSON.stringify(dataToSave));
+            }
+
+            function loadState() {
+                const savedState = localStorage.getItem(`teacherHubState_${state.currentClass}`);
+                elements.objective.textarea.value = '';
+                elements.doNow.textarea.value = '';
+                elements.agenda.list.innerHTML = '';
+                elements.dailyDrop.removeBtn.click(); // Reset daily drop
+
+                if (savedState) {
+                    const data = JSON.parse(savedState);
+                    elements.objective.textarea.value = data.objective || '';
+                    elements.doNow.textarea.value = data.doNow || '';
+                    if (data.agenda) {
+                        data.agenda.forEach(item => addAgendaItem(item.content, item.type));
                     }
-                } else { firstOperand = parseFloat(calcValue); operator = value; waitingForSecondOperand = true; }
-                calcDisplay.textContent = calcValue;
-            }));
+                    
+                    if (data.dailyDrop) {
+                        const img = document.createElement('img');
+                        img.src = data.dailyDrop;
+                        img.alt = "Daily Drop Image";
+                        elements.dailyDrop.placeholder.innerHTML = '';
+                        elements.dailyDrop.placeholder.appendChild(img);
+                        elements.dailyDrop.placeholder.classList.add('has-image');
+                        elements.dailyDrop.removeBtn.style.display = 'block';
+                        elements.dailyDrop.generatePromptBtn.style.display = 'block';
+                    }
+                }
+            }
 
-            // --- ARCHIVE & EXPORT LOGIC ---
-            const archiveDisplay = document.getElementById('archive-display');
-            const submitToArchiveBtn = document.getElementById('submit-to-archive-btn');
-            const copyForSharingBtn = document.getElementById('copy-for-sharing-btn');
-            const generateArchiveHtmlBtn = document.getElementById('generate-archive-html-btn');
-            const archiveForGithubTextarea = document.getElementById('archive-for-github');
-            const clearArchiveBtn = document.getElementById('clear-archive-btn');
+            elements.classSelector.addEventListener('change', () => {
+                saveState(); 
+                state.currentClass = elements.classSelector.value;
+                loadState();
+                loadArchives();
+            });
+
+            window.addEventListener('beforeunload', saveState);
 
             function loadArchives() {
-                archives = JSON.parse(localStorage.getItem('dailyArchives')) || [];
+                const savedArchives = localStorage.getItem('teacherHubArchives');
+                state.archives = savedArchives ? JSON.parse(savedArchives) : [];
                 renderArchive();
             }
 
             function saveArchives() {
-                 try {
-                    localStorage.setItem('dailyArchives', JSON.stringify(archives));
-                } catch (e) {
-                    console.error("Error saving archives:", e);
-                    showNotification("Could not save archive. Browser storage might be full.");
-                }
+                localStorage.setItem('teacherHubArchives', JSON.stringify(state.archives));
             }
 
             function renderArchive() {
-                archiveDisplay.innerHTML = '';
-                if (archives.length === 0) {
-                    archiveDisplay.innerHTML = '<p>No entries yet. Submit a plan from the Home tab!</p>';
-                    return;
-                }
-                const groupedByDate = archives.reduce((acc, entry) => {
+                elements.archive.display.innerHTML = '';
+                const groupedByDate = state.archives.reduce((acc, entry) => {
                     (acc[entry.date] = acc[entry.date] || []).push(entry);
                     return acc;
                 }, {});
-                const sortedDates = Object.keys(groupedByDate).sort().reverse();
 
-                sortedDates.forEach(date => {
-                    const dateObj = new Date(date);
-                    const adjustedDate = new Date(dateObj.valueOf() + dateObj.getTimezoneOffset() * 60 * 1000);
-
+                Object.keys(groupedByDate).sort((a,b) => new Date(b) - new Date(a)).forEach(date => {
                     const dateHeader = document.createElement('h2');
-                    dateHeader.textContent = adjustedDate.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                    archiveDisplay.appendChild(dateHeader);
+                    dateHeader.textContent = new Date(date).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    elements.archive.display.appendChild(dateHeader);
+
+                    const grid = document.createElement('div');
+                    grid.className = 'archive-class-grid';
                     
-                    const classGrid = document.createElement('div');
-                    classGrid.className = 'archive-class-grid';
                     groupedByDate[date].forEach(entry => {
-                        const entryCard = document.createElement('div');
-                        entryCard.className = 'card archive-entry';
-                        let agendaHTML = entry.data.agenda.map(item => `<li>${item.type === 'text' ? item.content : '[Image]'}</li>`).join('');
-                        entryCard.innerHTML = `<h4>${entry.className}</h4><h5>Learning Objective</h5><p>${entry.data.objective || 'N/A'}</p><h5>Check and Connect</h5><p>${entry.data.doNow || 'N/A'}</p><h5>Agenda</h5><ul>${agendaHTML || '<li>No agenda items.</li>'}</ul>`;
-                        classGrid.appendChild(entryCard);
+                        const dailyDropHTML = entry.dailyDrop ? `<h5>Daily Drop</h5><img src="${entry.dailyDrop}" alt="Daily Drop from ${entry.date}">` : '';
+                        const entryDiv = document.createElement('div');
+                        entryDiv.className = 'card archive-entry';
+                        entryDiv.innerHTML = `
+                            <h4>${entry.className}</h4>
+                            <h5>Learning Objective</h5>
+                            <p>${entry.objective}</p>
+                            <h5>Check and Connect</h5>
+                            <p>${entry.doNow}</p>
+                            <h5>Agenda</h5>
+                            <ul>${entry.agenda.map(item => `<li>${item.type === 'image' ? '<img src="'+item.content+'" alt="Agenda image">' : item.content}</li>`).join('')}</ul>
+                            ${dailyDropHTML}
+                        `;
+                        grid.appendChild(entryDiv);
                     });
-                    archiveDisplay.appendChild(classGrid);
+                    elements.archive.display.appendChild(grid);
                 });
             }
 
-            submitToArchiveBtn.addEventListener('click', () => {
-                const today = new Date().toISOString().split('T')[0];
-                const currentData = JSON.parse(localStorage.getItem(`classData_${currentClass}`)) || getInitialData();
-                const existingIndex = archives.findIndex(entry => entry.date === today && entry.className === currentClass);
-                const newEntry = { date: today, className: currentClass, data: currentData };
-                if (existingIndex > -1) archives[existingIndex] = newEntry; else archives.push(newEntry);
+            elements.actions.submitBtn.addEventListener('click', () => {
+                const dailyDropImg = elements.dailyDrop.placeholder.querySelector('img');
+                const entry = {
+                    id: Date.now(),
+                    date: new Date().toISOString().split('T')[0],
+                    className: state.currentClass,
+                    objective: elements.objective.textarea.value.trim(),
+                    doNow: elements.doNow.textarea.value.trim(),
+                    agenda: Array.from(elements.agenda.list.querySelectorAll('.agenda-item-content')).map(item => {
+                        const img = item.querySelector('img');
+                        return { type: img ? 'image' : 'text', content: img ? img.src : item.textContent };
+                    }),
+                    dailyDrop: dailyDropImg ? dailyDropImg.src : null
+                };
+
+                if (!entry.objective && !entry.doNow && entry.agenda.length === 0 && !entry.dailyDrop) {
+                    showNotification("Cannot submit an empty plan to the archive.", true);
+                    return;
+                }
+
+                state.archives.push(entry);
                 saveArchives();
                 renderArchive();
-                showNotification(`Plan for ${currentClass} submitted to archive!`);
+                showNotification("Today's plan has been archived!");
             });
 
-            copyForSharingBtn.addEventListener('click', () => {
-                const data = JSON.parse(localStorage.getItem(`classData_${currentClass}`)) || getInitialData();
-                let output = `Class: ${currentClass}\nDate: ${new Date().toLocaleDateString()}\n\n🧠 Learning Objective:\n${data.objective || 'Not specified.'}\n\n🤝 Check and Connect:\n${data.doNow || 'Not specified.'}\n\n📋 Agenda:\n`;
-                output += data.agenda && data.agenda.length > 0 ? data.agenda.map(item => `- ${item.type === 'text' ? item.content : '[Image]'}`).join('\n') : `No agenda items.`;
-                
-                const tempTextArea = document.createElement('textarea');
-                tempTextArea.value = output;
-                document.body.appendChild(tempTextArea);
-                tempTextArea.select();
-                try {
-                    document.execCommand('copy');
-                    showNotification('Plan copied to clipboard!');
-                } catch (err) {
-                    showNotification('Failed to copy.');
-                    console.error('Copy failed', err);
-                }
-                document.body.removeChild(tempTextArea);
-            });
-
-            generateArchiveHtmlBtn.addEventListener('click', () => {
-                const archiveHTML = generateStaticArchivePage(archives);
-                archiveForGithubTextarea.value = archiveHTML;
-                showNotification('Archive HTML generated!');
-            });
-
-            clearArchiveBtn.addEventListener('click', () => {
-                if (window.confirm("Are you sure you want to permanently delete the entire archive? This action cannot be undone.")) {
-                    archives = [];
+            elements.archive.clearBtn.addEventListener('click', () => {
+                if (confirm("Are you sure you want to permanently delete the entire archive? This cannot be undone.")) {
+                    state.archives = [];
                     saveArchives();
                     renderArchive();
-                    archiveForGithubTextarea.value = '';
-                    showNotification('Archive has been cleared.');
+                    showNotification("Archive cleared.");
                 }
             });
             
-            function generateStaticArchivePage(archiveData) {
-                const groupedByDate = archiveData.reduce((acc, entry) => {
+             elements.archive.generateHtmlBtn.addEventListener('click', () => {
+                let html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Class Archive</title><style>body{font-family:sans-serif;background:#f0f2f5;color:#333;padding:20px;max-width:900px;margin:auto;} h1,h2{color:#005a9c;} .date-group{margin-bottom:20px;border-bottom:2px solid #ccc;padding-bottom:10px;}.class-entry{background:#fff;border:1px solid #ddd;border-radius:5px;padding:15px;margin-bottom:10px;} h3{color:#d6336c;margin-top:0;} img{max-width:100%;height:auto;border-radius:4px;}</style></head><body><h1>Daily Learning Archive</h1>`;
+                const groupedByDate = state.archives.reduce((acc, entry) => {
                     (acc[entry.date] = acc[entry.date] || []).push(entry);
                     return acc;
                 }, {});
-                const sortedDates = Object.keys(groupedByDate).sort().reverse();
 
-                let bodyContent = '';
-                sortedDates.forEach(date => {
-                    const dateObj = new Date(date);
-                    const adjustedDate = new Date(dateObj.valueOf() + dateObj.getTimezoneOffset() * 60 * 1000);
-                    bodyContent += `<h2>${adjustedDate.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>`;
-                    bodyContent += `<div class="archive-class-grid">`;
+                Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a)).forEach(date => {
+                    html += `<div class="date-group"><h2>${new Date(date).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>`;
                     groupedByDate[date].forEach(entry => {
-                        let agendaHTML = entry.data.agenda.map(item => `<li>${item.type === 'text' ? item.content.replace(/</g, "&lt;").replace(/>/g, "&gt;") : '[Image]'}</li>`).join('');
-                        bodyContent += `
-                            <div class="card archive-entry">
-                                <h4>${entry.className}</h4>
-                                <h5>Learning Objective</h5>
-                                <p>${(entry.data.objective || 'N/A').replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-                                <h5>Check and Connect</h5>
-                                <p>${(entry.data.doNow || 'N/A').replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-                                <h5>Agenda</h5>
-                                <ul>${agendaHTML || '<li>No agenda items.</li>'}</ul>
-                            </div>
-                        `;
+                         const dailyDropHTML = entry.dailyDrop ? `<strong>Daily Drop:</strong><div><img src="${entry.dailyDrop}" alt="Daily Drop"></div>` : '';
+                        html += `<div class="class-entry"><h3>${entry.className}</h3><strong>Objective:</strong><p>${entry.objective || 'N/A'}</p><strong>Do Now:</strong><p>${entry.doNow || 'N/A'}</p><strong>Agenda:</strong><ul>${entry.agenda.map(i => `<li>${i.type === 'image' ? `<img src="${i.content}" alt="Agenda Image">` : i.content}</li>`).join('')}</ul>${dailyDropHTML}</div>`;
                     });
-                    bodyContent += `</div>`;
+                    html += `</div>`;
                 });
 
-                return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ms. P's Daily Archive</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --primary-accent: #f72585; --secondary-accent: #4cc9f0; --text-light: #f0f0f0; --card-bg: rgba(0, 0, 0, 0.4); --card-border: rgba(255, 255, 255, 0.15); }
-        body { font-family: 'Poppins', sans-serif; background: linear-gradient(-45deg, #000000, #1d0c33, #3a0ca3); color: var(--text-light); margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 { text-align: center; font-size: 2.5em; text-shadow: 0 0 15px var(--primary-accent); }
-        h2 { border-bottom: 2px solid var(--primary-accent); padding-bottom: 10px; margin-top: 40px; }
-        .archive-class-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-        .card { background: var(--card-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 20px; border-radius: 15px; border: 1px solid var(--card-border); }
-        h4 { margin-top: 0; color: var(--primary-accent); font-size: 1.2em; }
-        h5 { color: var(--secondary-accent); border-bottom: 1px solid var(--secondary-accent); padding-bottom: 5px; margin-top: 15px; }
-        p, ul { margin-top: 0; }
-        ul { list-style-type: disc; padding-left: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Ms. P's Daily Archive</h1>
-        ${bodyContent}
-    </div>
-</body>
-</html>`;
-            }
-
-            // --- GENERATOR LOGIC (STATIC) ---
-            const generateObjectiveBtn = document.getElementById('generate-objective-btn');
-            const objectiveTopicInput = document.getElementById('objective-topic');
-            const generateDonowBtn = document.getElementById('generate-donow-btn');
-            const generateDocBtn = document.getElementById('generate-doc-btn');
-            const downloadDocBtn = document.getElementById('download-doc-btn');
-            const docTypeSelect = document.getElementById('doc-type-select');
-            const docGeneratorTextarea = document.getElementById('doc-generator-textarea');
-
-            generateObjectiveBtn.addEventListener('click', () => {
-                const topic = objectiveTopicInput.value.trim();
-                if (!topic) {
-                    showNotification("Please enter a topic for the objective.");
-                    return;
-                }
-                learningObjective.value = `Students will be able to ${topic}.`;
-                saveData();
-            });
-
-            generateDonowBtn.addEventListener('click', () => {
-                const questions = [
-                    "What is one thing you are curious about today?",
-                    "If you could have any superpower, what would it be and why?",
-                    "What's a small thing that made you smile this week?",
-                    "If you could travel anywhere in the world, where would you go first?",
-                    "What is a skill you'd like to learn?"
-                ];
-                const randomIndex = Math.floor(Math.random() * questions.length);
-                doNow.value = questions[randomIndex];
-                saveData();
+                html += `</body></html>`;
+                elements.archive.githubTextarea.value = html;
+                showNotification("Archive HTML generated!");
             });
             
-            generateDocBtn.addEventListener('click', () => {
-                const docType = docTypeSelect.value;
-                let template = '';
-                switch(docType) {
-                    case 'behavior':
-                        template = `Student Behavior Log\n\nStudent Name: \nDate: \nTime: \nLocation: \n\nAntecedent (What happened before):\n\n\nBehavior (What the student did):\n\n\nConsequence (What happened after):\n\n\nStaff Initials: `;
-                        break;
-                    case 'parent':
-                        template = `Parent Communication Log\n\n---\n\nDate: \nStudent Name: \nParent/Guardian Contacted: \nMethod (Phone, Email, In-person): \n\nReason for Contact:\n\n\nSummary of Conversation:\n\n\n---`;
-                        break;
-                    case 'notes':
-                        template = `Meeting Notes\n\nMeeting Title: \nDate: \nAttendees: \n\nKey Points/Discussion:\n- \n- \n- \n\nAction Items:\n- (Assigned to: , Deadline: )\n- (Assigned to: , Deadline: )`;
-                        break;
+            elements.teacherTools.generateBtn.addEventListener('click', async () => {
+                const docType = elements.teacherTools.docTypeSelect.value;
+                let prompt = '';
+                if(docType === 'behavior') {
+                    prompt = 'Generate a simple, professional template for a student behavior log. Include fields for Date, Student Name, Behavior Observed, and Action Taken.';
+                } else if(docType === 'parent') {
+                    prompt = 'Generate a friendly, professional template for a parent communication log. Include fields for Date, Student Name, Parent Contacted, Method (Phone/Email), Reason for Contact, and Summary of Conversation.';
+                } else {
+                    prompt = 'Generate a flexible template for miscellaneous classroom notes. Include a section for Date, Topic, Key Points, and Action Items.';
                 }
-                docGeneratorTextarea.value = template;
+                elements.teacherTools.generateBtn.disabled = true;
+                const result = await callGemini(prompt);
+                elements.teacherTools.generateBtn.disabled = false;
+                if (result) elements.teacherTools.textarea.value = result;
             });
 
-            downloadDocBtn.addEventListener('click', () => {
-                const text = docGeneratorTextarea.value;
+            elements.teacherTools.downloadBtn.addEventListener('click', () => {
+                const text = elements.teacherTools.textarea.value;
                 if (!text) {
-                    showNotification('Nothing to download!');
+                    showNotification("Nothing to download.", true);
                     return;
                 }
-                const filename = `${docTypeSelect.value}_template.txt`;
-                const element = document.createElement('a');
-                element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-                element.setAttribute('download', filename);
-                element.style.display = 'none';
-                document.body.appendChild(element);
-                element.click();
-                document.body.removeChild(element);
+                const blob = new Blob([text], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `${elements.teacherTools.docTypeSelect.value}_template.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showNotification("Template downloaded!");
             });
+            
+            elements.calculator.buttons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const value = button.textContent;
+                    let current = elements.calculator.display.textContent;
 
-            function checkLocalStorage() {
-                try {
-                    localStorage.setItem('__test', 'test');
-                    localStorage.removeItem('__test');
-                    return true;
-                } catch (e) {
-                    return false;
-                }
-            }
-
-            // Initial Load
-            if (!checkLocalStorage()) {
-                showNotification("Warning: Browser storage is disabled. Your work will not be saved.");
-            }
-            loadData();
+                    if (value === 'C') {
+                        elements.calculator.display.textContent = '0';
+                    } else if (value === '=') {
+                        try {
+                            // Basic eval, replace custom operators if needed
+                            elements.calculator.display.textContent = eval(current.replace(/--/g, '+').replace(/(\d)%/g, '($1/100)'));
+                        } catch {
+                            elements.calculator.display.textContent = 'Error';
+                        }
+                    } else if (value === '+/-') {
+                         if (current !== '0') {
+                            elements.calculator.display.textContent = current.startsWith('-') ? current.slice(1) : '-' + current;
+                        }
+                    } else {
+                        if (current === '0' || current === 'Error') {
+                            elements.calculator.display.textContent = value;
+                        } else {
+                            elements.calculator.display.textContent += value;
+                        }
+                    }
+                });
+            });
+            
+            // --- INITIAL LOAD ---
+            loadState();
             loadArchives();
         });
     </script>
 </body>
 </html>
+
